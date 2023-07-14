@@ -1,0 +1,9 @@
+---
+- name: Install Docker
+  hosts: build_host
+  remote_user: root
+  become: yes
+  roles:
+    - common
+    - docker
+    - test-run-container

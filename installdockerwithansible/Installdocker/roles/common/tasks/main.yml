@@ -1,0 +1,119 @@
+---
+
+- name: install yum on fedora
+  when: ansible_distribution == "Fedora"
+  dnf: 
+        name: yum
+        state: latest
+ 
+- name: Update
+  when: ansible_os_family == 'RedHat'
+  yum: 
+        name: "*"
+        state: latest
+
+- name: Update Ubuntu
+  when:  ansible_os_family == "Debian"
+  apt:  
+        name: "*"
+        state: latest
+
+- name: create docker group
+  become: true
+  group:
+        name: docker
+        state: present
+
+- name: add user to group 
+  become: true
+  user:
+        name: "{{ansible_user}}"
+        groups: docker
+        append: true
+
+- meta: reset_connection
+
+
+- name: Remove older version of docker
+  when: ansible_os_family == 'RedHat'
+  yum:
+        name:
+           - docker
+           - docker-client
+           - docker-client-latest
+           - docker-common
+           - docker-latest
+           - docker-latest-logrotate
+           - docker-logrotate
+           - docker-selinux
+           - docker-engine-selinux 
+           - docker-engine
+        state: absent
+
+- name: Remove older version of docker
+  when:  ansible_os_family == "Debian"
+  apt:
+        name:
+           - docker
+           - docker.io
+           - containerd
+           - runc
+           - docker-engine
+        state: absent
+
+
+- name: Install yum-utils
+  when: ansible_distribution == "CentOS"
+  yum:
+        name: yum-utils
+        state: latest
+
+- name: Install dnf-plugins-core
+  when: ansible_distribution == "Fedora"
+  dnf:
+        name: dnf-plugins-core
+        state: latest
+
+- name: Install apt-transport-https
+  when:  ansible_os_family == "Debian"  
+  apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - lsb-release
+          - gnupg
+          - software-properties-common
+        state: latest
+        update_cache: true 
+
+- name: Add signing key
+  when:  ansible_os_family == "RedHat" 
+  rpm_key:
+        key: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        state: present
+
+- name: Add repository into repo.d list
+  when:  ansible_os_family == "RedHat"
+  yum_repository:
+        name: docker
+        description: "Repo for RedHat os family"
+        baseurl: "https://download.docker.com/linux/{{ ansible_distribution }}/{{ansible_distribution_release}}/$basearch/stable"
+        enabled: 1
+        gpgcheck: 1
+        gpgkey: "https://download.docker.com/linux/{{ ansible_distribution }}/gpg"
+
+- name: Add signing key
+  when: ansible_os_family == "Debian"
+  apt_key:
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        state: present
+ 
+- name: Add repository into sources list  
+  when:  ansible_os_family == "Debian" 
+  apt_repository:
+        name: Repository for Daiann os family
+        description: “Repo for Debian os family”
+        repo: "deb [arch={{ ansible_architecture }}] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+        update_cache: 1

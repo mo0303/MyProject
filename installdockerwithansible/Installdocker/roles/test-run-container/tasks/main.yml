@@ -1,0 +1,19 @@
+---
+- name: docker container run
+  docker_container:
+    name: nginx
+    image: nginx:latest
+    state: started
+    ports:
+      - "80:80"
+
+- name: Check nginx 
+    #ansible_default_ipv4['address'] 
+  ansible.builtin.uri:
+      url: "http://{{ ansible_default_ipv4['address']}}:80"
+  register: output
+
+- name: Show result 
+  #when: ansible_default_ipv4['address'] == "192.168.40.123"
+  debug:
+        msg: "{{ output }}"

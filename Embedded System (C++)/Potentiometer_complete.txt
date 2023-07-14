@@ -1,0 +1,227 @@
+#include "mbed.h"
+#include "NetworkInterface.h"
+#include "TCPSocket.h"
+#define TRUE 1
+#define FALSE 0
+#define MQTTCLIENT_QOS1 1
+#define MQTTCLIENT_QOS2 1
+#include "Sht31.h"
+#include "C12832.h"
+#include "MQTTNetwork.h"
+#include "MQTTmbed.h"
+#include "MQTTClient.h"
+#define logMessage printf
+
+#define WAIT_MS_FOR_MESSAGE 100
+DigitalOut led1(LED1);
+DigitalOut led2(LED2);
+AnalogIn potentiometer(p20);
+C12832 lcd(SPI_MOSI, SPI_SCK, SPI_MISO, p8, p11);
+DigitalOut led3(p5);
+DigitalOut led4(p6);
+DigitalOut led5(p7);
+PwmOut speaker(p21);
+
+NetworkInterface *net = NetworkInterface::get_default_instance();
+volatile int arrivedcount = 0;
+void play_tone(float frequency, float volume, int interval, int rest) {
+  speaker.period(1.0 / frequency);
+  speaker = volume;
+  wait(interval);
+  speaker = 0.0;
+  wait(rest);
+}
+void messageArrived(MQTT::MessageData& md)
+{
+  int value;
+  MQTT::Message &message = md.message;
+  sscanf((char *)message.payload, "%d", &value);
+  if (value == 0) {
+    //lcd.cls();
+    led1 = FALSE;
+    led3 = FALSE;
+    led4 = FALSE;
+    led5 = FALSE;
+  }
+  else if (value == 1) {
+    logMessage("Open By MQTT\n");
+    lcd.cls();
+    lcd.locate(3, 3);
+    lcd.printf("Open By MQTT\n");
+    led1 = TRUE;
+    logMessage("Light ON\n");
+    logMessage("Sound ON\n");
+    led3 = TRUE;
+    logMessage("Light 1 ON\n");
+    play_tone(200.0, 0.5, 1, 0);
+    led4 = TRUE;
+    logMessage("Light 2 ON\n");
+    play_tone(150.0, 0.5, 1, 0);
+    led5 = TRUE;
+    logMessage("Light 3 ON\n");
+    play_tone(125.0, 0.5, 1, 0);
+  }
+}
+
+int main() 
+{
+  float mypotentiometer;
+  net->connect();
+  // Show the network address
+  const char *ip = net->get_ip_address();
+  const char *mac = net->get_mac_address();
+  const char *gateway = net->get_gateway();
+  printf("IP address: %s\n", ip ? ip : "None");
+  printf("MAC address: %s\n", mac ? mac : "None");
+  printf("Gateway: %s\n", gateway ? gateway : "None");
+  printf("Starting MQTT Demo\n");
+  float version = 0.6;
+  char* topic = "test/poten";
+  char* topic2 = "test/light";
+  char* topic3 = "test/light1";
+  char* topic4 = "test/light2";
+  char* topic5 = "test/light3";
+  char* topic6 = "test/sound";
+  MQTTNetwork mqttNetwork(net);
+  MQTT::Client<MQTTNetwork, Countdown> client(mqttNetwork);
+  const char* hostname = "broker.hivemq.com";
+  int port = 1883;
+  logMessage("Connecting to %s:%d\r\n", hostname, port);
+  int rc = mqttNetwork.connect(hostname, port);
+  if (rc != 0)
+    logMessage("rc from TCP connect is %d\r\n", rc);
+    MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+    data.MQTTVersion = 3;
+    data.clientID.cstring = "clientId-Ef5AxbF3T9";
+  if ((rc = client.connect(data)) != 0)
+    logMessage("rc from MQTT connect is %d\r\n", rc);
+  if ((rc = client.subscribe(topic, MQTT::QOS2, messageArrived)) != 0)
+    logMessage("rc from MQTT subscribe is %d\r\n", rc);
+  while (1) {
+    rc = client.subscribe(topic, MQTT::QOS0, messageArrived);
+    MQTT::Message message;
+    char buf[100];
+    message.qos = MQTT::QOS0;
+    message.retained = false;
+    message.dup = false;
+    message.payload = (void*)buf;
+    message.payloadlen = strlen(buf)+1;
+    mypotentiometer = potentiometer.read();
+    lcd.locate(3, 3);
+    lcd.printf("Potentiometer: %.2f V", mypotentiometer);
+      if(mypotentiometer >= 0.5){
+        char buf[100];
+        sprintf(buf, "%.2f V",mypotentiometer);
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic, message);
+        logMessage("Potentiometer %.*s\r\n", message.payloadlen, (char*)message.payload);
+        logMessage("ON\n");
+        logMessage("Sound ON\n");
+        sprintf(buf, "Sound ON");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic6, message);
+        led1 = TRUE;
+        logMessage("Light ON\n");
+        sprintf(buf, "Light ON");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic2, message);
+        led3 = TRUE;
+        logMessage("Light 1 ON\n");
+        sprintf(buf, "Light 1 ON");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic3, message);
+        play_tone(200.0, 0.5, 1, 0);
+        led4 = TRUE;
+        logMessage("Light 2 ON\n");
+        sprintf(buf, "Light 2 ON");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic4, message);
+        play_tone(150.0, 0.5, 1, 0);
+        led5 = TRUE;
+        logMessage("Light 3 ON\n");
+        sprintf(buf, "Light 3 ON");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic5, message);
+        play_tone(125.0, 0.5, 1, 0);
+      }
+      else{
+        char buf[100];
+        sprintf(buf, "%.2f V",mypotentiometer);
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic, message);
+        led1 = FALSE;
+        logMessage("Light OFF\n");
+        sprintf(buf, "Light OFF");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic2, message);
+        logMessage("Sound OFF\n");
+        sprintf(buf, "Sound OFF");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic6, message);
+        led3 = FALSE;
+        logMessage("Light 1 OFF\n");
+        sprintf(buf, "Light1 OFF");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic3, message);
+        led4 = FALSE;
+        logMessage("Light 2 OFF\n");
+        sprintf(buf, "Light2 OFF");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic4, message);
+        led5 = FALSE;
+        logMessage("Light 3 OFF\n");
+        sprintf(buf, "Light3 OFF");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic5, message);
+      }
+  wait(0.5f);
+  }
+}

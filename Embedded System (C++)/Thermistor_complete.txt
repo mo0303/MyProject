@@ -1,0 +1,169 @@
+#include "mbed.h"
+#define TRUE 1
+#define FALSE 0
+#include "NetworkInterface.h"
+#include "TCPSocket.h"
+#define MQTTCLIENT_QOS1 1
+#define MQTTCLIENT_QOS2 1
+#include "MQTTNetwork.h"
+#include "MQTTmbed.h"
+#include "MQTTClient.h"
+#define logMessage printf
+#include "C12832.h"
+#define WAIT_MS_FOR_MESSAGE 100
+DigitalIn SW_1(p5);
+DigitalIn SW_2(p6);
+PwmOut speaker(p21);
+C12832 lcd(SPI_MOSI, SPI_SCK, SPI_MISO, p8, p11);
+DigitalOut led1(LED1);
+DigitalOut led2(LED2);
+AnalogIn Thermistor(p20);
+int sw1;
+int sw2;
+NetworkInterface *net = NetworkInterface::get_default_instance();
+volatile int arrivedcount = 0;
+void messageArrived(MQTT::MessageData& md)
+{
+  MQTT::Message &message = md.message;
+}
+void play_tone(float frequency, float volume, int interval, int rest) {
+  speaker.period(1.0 / frequency);
+  speaker = volume;
+  wait(interval);
+  speaker = 0.0;
+  wait(rest);
+}
+
+int main()
+{
+  printf("Thermistor\n");
+  net->connect();
+  // Show the network address
+  const char *ip = net->get_ip_address();
+  const char *mac = net->get_mac_address();
+  const char *gateway = net->get_gateway();
+  sw1 = 0;
+  sw2 = 0;
+  printf("IP address: %s\n", ip ? ip : "None");
+  printf("MAC address: %s\n", mac ? mac : "None");
+  printf("Gateway: %s\n", gateway ? gateway : "None");
+  printf("Starting MQTT Demo\n");
+  char* topic = "test/thermis";
+  char* topic2 = "test/switch";
+  char* topic3 = "test/sound2";
+  MQTTNetwork mqttNetwork(net);
+  MQTT::Client<MQTTNetwork, Countdown> client(mqttNetwork);
+  const char* hostname = "broker.hivemq.com";
+  int port = 1883;
+  logMessage("Connecting to %s:%d\r\n", hostname, port);
+  int rc = mqttNetwork.connect(hostname, port);
+  if (rc != 0)
+    logMessage("rc from TCP connect is %d\r\n", rc);
+    MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+    data.MQTTVersion = 3;
+    data.clientID.cstring = "clientId-edZ9n1SSRA";
+  if ((rc = client.connect(data)) != 0)
+    logMessage("rc from MQTT connect is %d\r\n", rc);
+  if ((rc = client.subscribe(topic, MQTT::QOS2, messageArrived)) != 0)
+    logMessage("rc from MQTT subscribe is %d\r\n", rc);
+    
+  while(1) {
+    float mythermistor;
+    while(sw2 == true){
+      lcd.cls();
+      led1 = sw2;
+      MQTT::Message message;
+      char buf1[100];
+      sprintf(buf1, "ON");
+      message.qos = MQTT::QOS0;
+      message.retained = false;
+      message.dup = false;
+      message.payload = (void*)buf1;
+      message.payloadlen = strlen(buf1)+1;
+      rc = client.publish(topic2, message);
+      logMessage("Power %.*s\r\n", message.payloadlen, (char*)message.payload);
+      mythermistor = Thermistor.read();
+      if ((sw1 != SW_1 || mythermistor >= 0.5)){ 
+	      lcd.locate(3, 3);
+        lcd.printf("Thermistor: %.2f V", mythermistor);
+        lcd.locate(3, 13);
+        lcd.printf("ALERT!");
+  	    led2 = TRUE;
+  	    MQTT::Message message;
+        char buf[100];
+        sprintf(buf, "%.2f V",mythermistor);
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic, message);
+        logMessage("Thermistor %.*s\r\n", message.payloadlen, (char*)message.payload);
+        logMessage("ALERT!\n");
+        sprintf(buf, "ON");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic3, message);
+        play_tone(200.0, 0.5, 1, 0);
+        play_tone(150.0, 0.5, 1, 0);
+        play_tone(125.0, 0.5, 1, 2);
+          if (sw2 != SW_2){
+            break;
+          }
+      }
+      else { 
+  	    led2 = FALSE;
+  	    MQTT::Message message;
+  	    lcd.locate(3, 3);
+        lcd.printf("Thermistor: %.2f V", mythermistor);
+        lcd.locate(3, 13);
+        lcd.printf("");
+        char buf[100];
+        sprintf(buf, "%.2f V",mythermistor);
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic, message);
+        logMessage("Thermistor %.*s\r\n", message.payloadlen, (char*)message.payload);
+        sprintf(buf, "OFF");
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic3, message);
+        if (sw2 != SW_2){
+          break;
+        }
+      }
+      wait(1);
+    }
+  sw2 = SW_2;
+    if (sw2 == false){
+      lcd.cls();
+      lcd.locate(3, 3);
+      lcd.printf("POWER OFF!");
+      led1 = sw2;
+      MQTT::Message message;
+      char buf1[100];
+      sprintf(buf1, "OFF");
+      message.qos = MQTT::QOS0;
+      message.retained = false;
+      message.dup = false;
+      message.payload = (void*)buf1;
+      message.payloadlen = strlen(buf1)+1;
+      rc = client.publish(topic2, message);
+      rc = client.publish(topic3, message);
+      logMessage("Power %.*s\r\n", message.payloadlen, (char*)message.payload);
+      wait(0.5f);
+    }
+  wait(3);
+  }
+}
+
+

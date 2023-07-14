@@ -1,0 +1,105 @@
+#include "mbed.h"
+#include "C12832.h"
+#include "Sht31.h"
+#include "NetworkInterface.h"
+#include "TCPSocket.h"
+#define MQTTCLIENT_QOS1 1
+#define MQTTCLIENT_QOS2 1
+#include "MQTTNetwork.h"
+#include "MQTTmbed.h"
+#include "MQTTClient.h"
+#define logMessage printf
+
+#define WAIT_MS_FOR_MESSAGE 100
+C12832 lcd(SPI_MOSI, SPI_SCK, SPI_MISO, p8, p11);
+Sht31 sht31(I2C_SDA, I2C_SCL);
+DigitalOut led(LED1);
+DigitalOut led2(LED2);
+
+NetworkInterface *net = NetworkInterface::get_default_instance();
+volatile int arrivedcount = 0;
+void messageArrived(MQTT::MessageData& md)
+{
+  MQTT::Message &message = md.message;
+}
+
+int main() {
+  printf("Set the temperature above 25 degrees to trigger the warning LED\n");
+  net->connect();
+  // Show the network address
+  const char *ip = net->get_ip_address();
+  const char *mac = net->get_mac_address();
+  const char *gateway = net->get_gateway();
+  float temp1 ;
+  float humidity1;
+  printf("IP address: %s\n", ip ? ip : "None");
+  printf("MAC address: %s\n", mac ? mac : "None");
+  printf("Gateway: %s\n", gateway ? gateway : "None");
+  printf("Starting MQTT Demo\n");
+  float version = 0.6;
+  char* topic = "test/t";
+  char* topic2 = "test/h";
+  MQTTNetwork mqttNetwork(net);
+  MQTT::Client<MQTTNetwork, Countdown> client(mqttNetwork);
+  const char* hostname = "broker.hivemq.com";
+  int port = 1883;
+  logMessage("Connecting to %s:%d\r\n", hostname, port);
+  int rc = mqttNetwork.connect(hostname, port);
+  if (rc != 0)
+    logMessage("rc from TCP connect is %d\r\n", rc);
+  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+  data.MQTTVersion = 3;
+  data.clientID.cstring = "clientId-trbP86yvtm";
+  if ((rc = client.connect(data)) != 0)
+    logMessage("rc from MQTT connect is %d\r\n", rc);
+  if ((rc = client.subscribe(topic, MQTT::QOS2, messageArrived)) != 0)
+    logMessage("rc from MQTT subscribe is %d\r\n", rc);
+    
+  while (1) {
+    lcd.cls();
+    float temp = sht31.readTemperature();
+    float humidity = sht31.readHumidity();
+    lcd.locate(3, 3);
+    lcd.printf("Temperature: %.2f C", temp);
+    lcd.locate(3, 13);
+    lcd.printf("Humidity: %.2f %%", humidity);
+      if ((temp != temp1)){
+        temp1 = temp;
+  	    humidity1 = humidity;
+        lcd.locate(3, 3);
+        lcd.printf("Temperature: %.2f C", temp);
+        lcd.locate(3, 13);
+        lcd.printf("Humidity: %.2f %%", humidity);
+        MQTT::Message message;
+        char buf[100];
+        sprintf(buf, "%.2f C",temp);
+        message.qos = MQTT::QOS0;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic, message);
+        logMessage("Temperature %.*s\r\n", message.payloadlen, (char*)message.payload);
+        led = temp > 25.0f;
+      }
+      else if ((humidity != humidity1)){
+        humidity1 = humidity;
+        lcd.locate(3, 3);
+        lcd.printf("Temperature: %.2f C", temp);
+        lcd.locate(3, 13);
+        lcd.printf("Humidity: %.2f %%", humidity);
+        MQTT::Message message;
+        char buf[100];
+        sprintf(buf, "%.2f%%",humidity);
+        message.qos = MQTT::QOS1;
+        message.retained = false;
+        message.dup = false;
+        message.payload = (void*)buf;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic2, message);
+        logMessage("Humidity %.*s\r\n", message.payloadlen, (char*)message.payload);
+        led2 = humidity > 80.0f;
+      }
+    wait(0.5f);
+  }
+}
